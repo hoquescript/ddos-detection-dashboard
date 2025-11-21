@@ -14,7 +14,7 @@ app = Flask(__name__)
 # Logging Configuration
 # -----------------------------
 logging.basicConfig(
-    level=logging.DEBUG,  # DEBUG level shows everything
+    level=logging.DEBUG,  # Show debug info
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.StreamHandler()  # prints to console (Render logs)
@@ -44,24 +44,21 @@ def load_resources():
     global scaler, pca, le, model, traffic_data
     logging.info("Loading Defense System...")
 
+    # Log file existence
+    logging.info(f"Dataset exists: {DATA_FILE.exists()}")
+    logging.info(f"Scaler exists: {(MODELS_DIR / 'scaler.joblib').exists()}")
+    logging.info(f"PCA exists: {(MODELS_DIR / 'pca.joblib').exists()}")
+    logging.info(f"Label encoder exists: {(MODELS_DIR / 'label_encoder.joblib').exists()}")
+    logging.info(f"Random Forest exists: {(MODELS_DIR / 'Random_Forest.joblib').exists()}")
+
     try:
-        logging.info(f"Loading scaler from {MODELS_DIR / 'scaler.joblib'}")
         scaler = joblib.load(MODELS_DIR / 'scaler.joblib')
-
-        logging.info(f"Loading PCA from {MODELS_DIR / 'pca.joblib'}")
         pca = joblib.load(MODELS_DIR / 'pca.joblib')
-
-        logging.info(f"Loading label encoder from {MODELS_DIR / 'label_encoder.joblib'}")
         le = joblib.load(MODELS_DIR / 'label_encoder.joblib')
-
-        logging.info(f"Loading Random Forest model from {MODELS_DIR / 'Random_Forest.joblib'}")
         model = joblib.load(MODELS_DIR / 'Random_Forest.joblib')
-
-        logging.info(f"Loading dataset from {DATA_FILE}")
         traffic_data = pd.read_csv(DATA_FILE, low_memory=False)
-        logging.info(f"Dataset loaded: {traffic_data.shape[0]} rows, {traffic_data.shape[1]} columns")
 
-        # Clean column names
+        # Clean columns
         traffic_data.columns = (
             traffic_data.columns
             .str.strip()
@@ -70,7 +67,9 @@ def load_resources():
         )
         traffic_data.replace([np.inf, -np.inf], np.nan, inplace=True)
         traffic_data.dropna(inplace=True)
-        logging.info(f"Columns after cleaning: {list(traffic_data.columns)}")
+
+        logging.info(f"Dataset loaded: {traffic_data.shape[0]} rows, {traffic_data.shape[1]} columns")
+        logging.info(f"Columns: {list(traffic_data.columns)}")
         logging.info("✅ System Loaded Successfully!")
 
     except FileNotFoundError as e:
@@ -85,6 +84,7 @@ def load_resources():
 def home():
     return render_template('dashboard.html')
 
+
 @app.route('/get_traffic')
 def get_traffic():
     global scaler, pca, le, model, traffic_data
@@ -97,23 +97,18 @@ def get_traffic():
         logging.debug(f"Sampling packet from dataset of shape {traffic_data.shape}")
         packet_row = traffic_data.sample(1)
 
-        # Drop label if present
         features_raw = packet_row.drop(columns=['label']) if 'label' in packet_row else packet_row
         features_numeric = features_raw.select_dtypes(include=['number'])
         logging.debug(f"Numeric features: {list(features_numeric.columns)}")
 
-        # Prediction
         start = time.perf_counter()
         scaled = scaler.transform(features_numeric)
         reduced = pca.transform(scaled)
-
         pred_idx = model.predict(reduced)[0]
         prediction_label = le.inverse_transform([pred_idx])[0]
         confidence = np.max(model.predict_proba(reduced))
-
         latency_ms = (time.perf_counter() - start) * 1000
 
-        # Fake IP + protocol for demo
         src_ip = f"192.168.1.{random.randint(2, 254)}"
         protocol = "TCP" if random.random() > 0.5 else "UDP"
 
@@ -141,9 +136,9 @@ def handle_exception(e):
     return jsonify({'error': str(e)}), 500
 
 # -----------------------------
-# Main (Render-safe)
+# Main Entry (Render-safe)
 # -----------------------------
 if __name__ == '__main__':
     load_resources()
-    port = int(os.environ.get("PORT", 3000))  # Render assigns PORT
+    port = int(os.environ.get("PORT", 3000))
     app.run(host="0.0.0.0", port=port)
