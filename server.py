@@ -6,31 +6,17 @@ import random
 import time
 from pathlib import Path
 import os
-import logging
 
 app = Flask(__name__)
 
 # -----------------------------
-# Logging Configuration
-# -----------------------------
-logging.basicConfig(
-    level=logging.DEBUG,  # Show debug info
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler()  # prints to console (Render logs)
-    ]
-)
-
-# -----------------------------
-# Paths (Render-safe)
+# PATHS (Render safe)
 # -----------------------------
 BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / 'models'
 DATA_FILE = BASE_DIR / 'dataset.csv'
 
-# -----------------------------
-# Global Variables
-# -----------------------------
+# Global variables
 scaler = None
 pca = None
 le = None
@@ -38,24 +24,26 @@ model = None
 traffic_data = None
 
 # -----------------------------
-# Load ML Resources
+# LOAD MODELS AND DATA
 # -----------------------------
 def load_resources():
     global scaler, pca, le, model, traffic_data
-    logging.info("Loading Defense System...")
+    print("Loading Defense System...")
 
-    # Log file existence
-    logging.info(f"Dataset exists: {DATA_FILE.exists()}")
-    logging.info(f"Scaler exists: {(MODELS_DIR / 'scaler.joblib').exists()}")
-    logging.info(f"PCA exists: {(MODELS_DIR / 'pca.joblib').exists()}")
-    logging.info(f"Label encoder exists: {(MODELS_DIR / 'label_encoder.joblib').exists()}")
-    logging.info(f"Random Forest exists: {(MODELS_DIR / 'Random_Forest.joblib').exists()}")
+    # Debug: Check if files exist
+    print("BASE_DIR:", BASE_DIR)
+    print("MODELS_DIR exists?", MODELS_DIR.exists())
+    print("DATA_FILE exists?", DATA_FILE.exists())
+    print("Files in models:", list(MODELS_DIR.glob("*")))
 
     try:
+        # Load Preprocessors and Model
         scaler = joblib.load(MODELS_DIR / 'scaler.joblib')
         pca = joblib.load(MODELS_DIR / 'pca.joblib')
         le = joblib.load(MODELS_DIR / 'label_encoder.joblib')
         model = joblib.load(MODELS_DIR / 'Random_Forest.joblib')
+
+        # Load Traffic Data
         traffic_data = pd.read_csv(DATA_FILE, low_memory=False)
 
         # Clean columns
@@ -65,80 +53,73 @@ def load_resources():
             .str.lower()
             .str.replace(' ', '_')
         )
+
+        # Clean values
         traffic_data.replace([np.inf, -np.inf], np.nan, inplace=True)
         traffic_data.dropna(inplace=True)
 
-        logging.info(f"Dataset loaded: {traffic_data.shape[0]} rows, {traffic_data.shape[1]} columns")
-        logging.info(f"Columns: {list(traffic_data.columns)}")
-        logging.info("✅ System Loaded Successfully!")
+        print(f"✅ System Loaded. Columns: {list(traffic_data.columns)}")
 
     except FileNotFoundError as e:
-        logging.error(f"Missing file: {e}", exc_info=True)
+        print(f"❌ File not found: {e}")
     except Exception as e:
-        logging.error(f"Error loading resources: {e}", exc_info=True)
+        print(f"❌ Error loading resources: {e}")
 
 # -----------------------------
-# Routes
+# ROUTES
 # -----------------------------
 @app.route('/')
 def home():
     return render_template('dashboard.html')
-
 
 @app.route('/get_traffic')
 def get_traffic():
     global scaler, pca, le, model, traffic_data
 
     if model is None or traffic_data is None:
-        logging.error("System not initialized. Model or dataset is None.")
+        print("System not initialized. Model or dataset is None.")
         return jsonify({'error': 'System not initialized'}), 500
 
     try:
-        logging.debug(f"Sampling packet from dataset of shape {traffic_data.shape}")
+        # Random packet
         packet_row = traffic_data.sample(1)
 
-        features_raw = packet_row.drop(columns=['label']) if 'label' in packet_row else packet_row
+        # Drop label if present
+        features_raw = packet_row.drop(columns=['label'], errors='ignore')
         features_numeric = features_raw.select_dtypes(include=['number'])
-        logging.debug(f"Numeric features: {list(features_numeric.columns)}")
 
+        # Predict
         start = time.perf_counter()
         scaled = scaler.transform(features_numeric)
         reduced = pca.transform(scaled)
+
         pred_idx = model.predict(reduced)[0]
         prediction_label = le.inverse_transform([pred_idx])[0]
         confidence = np.max(model.predict_proba(reduced))
         latency_ms = (time.perf_counter() - start) * 1000
 
+        # Fake IP + protocol
         src_ip = f"192.168.1.{random.randint(2, 254)}"
         protocol = "TCP" if random.random() > 0.5 else "UDP"
 
-        logging.debug(f"Prediction: {prediction_label}, Confidence: {confidence:.2f}")
         return jsonify({
-            'src_ip': src_ip,
-            'protocol': protocol,
-            'prediction': prediction_label,
-            'is_threat': prediction_label != "BENIGN",
-            'confidence': f"{confidence*100:.2f}%",
-            'latency': f"{latency_ms:.3f} ms",
-            'timestamp': time.strftime("%H:%M:%S")
+            "src_ip": src_ip,
+            "protocol": protocol,
+            "prediction": prediction_label,
+            "is_threat": prediction_label != "BENIGN",
+            "confidence": f"{confidence*100:.2f}%",
+            "latency": f"{latency_ms:.3f} ms",
+            "timestamp": time.strftime("%H:%M:%S"),
         })
 
     except Exception as e:
-        logging.error(f"Error processing packet: {e}", exc_info=True)
+        print(f"⚠️ Error processing packet: {e}")
         return jsonify({'error': str(e)}), 500
 
 # -----------------------------
-# Global Exception Handler
-# -----------------------------
-@app.errorhandler(Exception)
-def handle_exception(e):
-    logging.error(f"Unhandled exception: {e}", exc_info=True)
-    return jsonify({'error': str(e)}), 500
-
-# -----------------------------
-# Main Entry (Render-safe)
+# MAIN ENTRY
 # -----------------------------
 if __name__ == '__main__':
     load_resources()
-    port = int(os.environ.get("PORT", 3000))
+    port = int(os.environ.get("PORT", 3000))  # Render sets $PORT
     app.run(host="0.0.0.0", port=port)
