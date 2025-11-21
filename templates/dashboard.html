@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI DDoS Defense System</title>
+    <style>
+        body { font-family: 'Courier New', monospace; background-color: #0d1117; color: #c9d1d9; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h1 { text-align: center; color: #58a6ff; margin-bottom: 30px; }
+        
+        /* Status Panel */
+        .status-panel { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 20px; }
+        .card { background: #161b22; padding: 20px; border: 1px solid #30363d; border-radius: 6px; flex: 1; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .card-title { font-size: 0.9em; color: #8b949e; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .number { font-size: 2em; font-weight: bold; }
+        .safe { color: #3fb950; }
+        .danger { color: #f85149; }
+        .latency { color: #d29922; }
+
+        /* Log Table */
+        h3 { border-bottom: 1px solid #30363d; padding-bottom: 10px; margin-top: 40px; }
+        table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; font-size: 0.9em; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #30363d; }
+        th { background-color: #21262d; color: #8b949e; }
+        
+        /* Threat Highlighting */
+        tr.threat-row { background-color: rgba(248, 81, 73, 0.15); }
+        tr.threat-row td { color: #ff7b72; }
+        
+        /* Badges */
+        .badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em; }
+        .badge-safe { background: #238636; color: white; }
+        .badge-danger { background: #da3633; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ AI-Powered DDoS Detection</h1>
+        
+        <div class="status-panel">
+            <div class="card">
+                <div class="card-title">System Status</div>
+                <div class="number safe">ACTIVE</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Processing Latency</div>
+                <div class="number latency" id="latency-display">0.00 ms</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Threats Blocked</div>
+                <div class="number danger" id="threat-count">0</div>
+            </div>
+        </div>
+
+        <h3>Live Traffic Analysis Stream</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Source IP</th>
+                    <th>Protocol</th>
+                    <th>AI Prediction</th>
+                    <th>Confidence</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="log-body">
+                <!-- JS will insert rows here -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let threatCounter = 0;
+
+        async function fetchTraffic() {
+            try {
+                const response = await fetch('/get_traffic');
+                const data = await response.json();
+                
+                if (data.error) return;
+
+                // Update Latency Display
+                document.getElementById('latency-display').innerText = data.latency;
+
+                // Create Table Row
+                const tbody = document.getElementById('log-body');
+                const row = document.createElement('tr');
+                
+                let actionHtml = '';
+                let predDisplay = data.prediction;
+
+                if (data.is_threat) {
+                    row.classList.add('threat-row');
+                    actionHtml = '<span class="badge badge-danger">BLOCKED</span>';
+                    threatCounter++;
+                    document.getElementById('threat-count').innerText = threatCounter;
+                    // Add icon to prediction
+                    predDisplay = '⚠️ ' + data.prediction;
+                } else {
+                    actionHtml = '<span class="badge badge-safe">ALLOWED</span>';
+                }
+
+                row.innerHTML = `
+                    <td>${data.timestamp}</td>
+                    <td>${data.src_ip}</td>
+                    <td>${data.protocol}</td>
+                    <td>${predDisplay}</td>
+                    <td>${data.confidence}</td>
+                    <td>${actionHtml}</td>
+                `;
+                
+                // Insert at top (newest first)
+                tbody.insertBefore(row, tbody.firstChild);
+                
+                // Keep only last 10 rows to prevent clutter
+                if (tbody.children.length > 10) {
+                    tbody.removeChild(tbody.lastChild);
+                }
+
+            } catch (error) {
+                console.error('Connection lost:', error);
+            }
+        }
+
+        // Fetch new packet every 1 second
+        setInterval(fetchTraffic, 1000);
+    </script>
+</body>
+</html>
